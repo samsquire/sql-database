@@ -7,21 +7,26 @@ items = [
     {"key": "C.keyword.0", "value": "databases"},
     {"key": "C.keyword.1", "value": "cat"},
     {"key": "C.keyword.2", "value": "car"},
+    {"key": "C.keyword.3", "value": "cat"},
     {"key": "C.searchterm.0", "value": "search"},
     {"key": "R.people.0.id", "value": 0},
     {"key": "R.people.1.id", "value": 1},
     {"key": "R.people.1.people_name", "value": "Paul"},
+    {"key": "R.people.1.age", "value": 26},
     {"key": "R.people.0.people_name", "value": "Samuel"},
+    {"key": "R.people.0.age", "value": 30},
     {"key": "R.items.0.search", "value": "Things"},
+    {"key": "R.items.0.id", "value": 0},
     {"key": "R.items.1.search", "value": "Others"},
+    {"key": "R.items.1.id", "value": 1},
     {"key": "R.items.0.people", "value": 0},
     {"key": "R.items.1.people", "value": 1},
     {"key": "R.products.0.id", "value": 0},
     {"key": "R.products.0.name", "value": "Things"},
     {"key": "R.products.1.id", "value": 1},
     {"key": "R.products.1.name", "value": "Others"},
-    {"key": "R.products.1.price", "value": "20"},
-    {"key": "R.products.0.price", "value": "30"},
+    {"key": "R.products.1.price", "value": 20},
+    {"key": "R.products.0.price", "value": 30},
 ]
 items = sorted(items, key=itemgetter("key"))
 pprint(items)
@@ -37,6 +42,7 @@ class Parser():
         self.group_by = None
         self.insert_fields = []
         self.insert_values = []
+        self.where_clause = []
 
     def getchar(self):
         
@@ -51,6 +57,9 @@ class Parser():
     def gettok(self):
         while (self.last_char == " "):
             self.last_char = self.getchar()
+        
+        if self.end:
+            return None
         
         if self.last_char == "(":
             self.last_char = self.getchar()
@@ -72,7 +81,7 @@ class Parser():
                     self.last_char = self.getchar()
                 identifier = identifier + self.last_char
                 self.last_char = self.getchar()
-            if self.end and self.last_char != ")":
+            if self.end and self.last_char != ")" and self.last_char != "'":
                 identifier += self.last_char
             
             self.last_char = self.getchar()
@@ -116,6 +125,8 @@ class Parser():
                 if function_parameters == "wildcard":
                     function_parameters = "*"
             else:
+                if identifier == "wildcard":
+                    identifier = "*"
                 self.select_clause.append(identifier)
                 self.parse_select(token)
                 return
@@ -141,6 +152,21 @@ class Parser():
             join_target_2 = self.gettok()
             self.join_clause.append([join_target_1, join_target_2])
             self.parse_rest()
+            
+        if operation == "where":
+            self.parse_where()
+            
+    def parse_where(self):
+        field = self.gettok()
+        equals = self.gettok()
+        value = self.gettok()
+        if re.match("[0-9\.]+", value):
+            value = int(value)
+        self.where_clause.append((field, value))
+        another = self.gettok()
+        if another == "and":
+            self.parse_where()
+        
     
     def parse_insert_fields(self):
         field_name = self.gettok()
@@ -240,26 +266,56 @@ class SQLExecutor:
             field_reductions.append(pair_items)
         return table_datas, field_reductions
     
+    def hash_join(self, records, index, pair, table_datas):
+        ids_for_key = defaultdict(list)
+        if len(records) > 0:
+            scan = records
+        else:
+            scan = pair[0]
+        
+        for item in scan:
+            field = table_datas[index][0][1]
+            
+            left_field = item[field]
+            ids_for_key[left_field] = item
+        
+        for item in pair[1]:
+            if table_datas[index][1][1] in item and item[table_datas[index][1][1]] in ids_for_key:
+                
+                yield {**ids_for_key[item[table_datas[index][1][1]]], **item}
+    
     def execute(self):
         if self.parser.insert_values:
             insert_table = self.parser.insert_table
             print("Insert statement")
+            created = False
+            new_insert_count = 1
             for field, value in zip(self.parser.insert_fields, self.parser.insert_values):
                 table_datas, field_reductions = self.get_tables([["{}.".format(insert_table)]])
-                new_insert_count = len(field_reductions[0]) + 1
+                if not created:
+                    new_insert_count = len(list(field_reductions[0][0])) + 1
+                print(new_insert_count)
                 new_key = "R.{}.{}.{}".format(insert_table, new_insert_count, field)
                 items.append({
                     "key": new_key,
                     "value": value
                 })
-                new_key = "R.{}.{}.id".format(insert_table, new_insert_count, field)
+                new_key = "S.{}.{}.{}.{}".format(insert_table, field, value, new_insert_count)
                 items.append({
                     "key": new_key,
                     "value": new_insert_count
                 })
+                if not created:
+                    new_key = "R.{}.{}.id".format(insert_table, new_insert_count, field)
+                    items.append({
+                        "key": new_key,
+                        "value": new_insert_count
+                    })
+                    created = True
                 items.sort(key=itemgetter('key'))
             
         elif self.parser.group_by:
+            print("Group by statement")
             aggregator = defaultdict(list)
             for item in items:
                 k = item["key"]
@@ -267,7 +323,6 @@ class SQLExecutor:
                 if (k.split(".")[1] == parser.group_by):
                     aggregator[v].append(v)
 
-            print(len(aggregator["databases"]))
             print(statement)
             for k, v in aggregator.items():
                 output_line = ""
@@ -281,25 +336,11 @@ class SQLExecutor:
             table_datas, field_reductions = self.get_tables(self.parser.join_clause)
 
 
-            def hash_join(records, index, pair):
-                ids_for_key = defaultdict(list)
-                if len(records) > 0:
-                    scan = records
-                else:
-                    scan = pair[0]
-                for item in scan:
-                    field = table_datas[index][0][1]
-                    print(field)
-                    left_field = item[field]
-                    ids_for_key[left_field] = item
-                for item in pair[1]:
-                    if item[table_datas[index][1][1]] in ids_for_key:
-                        yield {**ids_for_key[item[table_datas[index][1][1]]], **item}
 
 
             records = []
             for index, pair in enumerate(field_reductions):
-                records = list(hash_join(records, index, pair))
+                records = list(self.hash_join(records, index, pair, table_datas))
 
             for record in records:
                 output_line = []
@@ -307,7 +348,51 @@ class SQLExecutor:
                     table, field = clause.split(".")
                     output_line.append(record[field])
                 print(output_line)
-
+                
+        elif self.parser.select_clause:
+            table_datas, field_reductions = self.get_tables([["{}.".format(self.parser.table_name)]])
+            have_printed_header = False
+            for pair in self.process_wheres(field_reductions):
+                header = []
+                output_line = []
+                for result in pair[0]:
+                    print("item: " + str(result))
+                    for field in self.parser.select_clause:
+                        
+                        if field == "*":
+                            for key, value in result.items():
+                                if not have_printed_header:
+                                    header.append(key)
+                                output_line.append(value)
+                        else:
+                            output_line.append(result[field])
+                    have_printed_header = True
+                print(header)
+                print(output_line)
+    
+    def process_wheres(self, field_reductions):
+        where_clause = self.parser.where_clause
+        print(where_clause)
+        data = list(field_reductions[0][0])
+        print(data)
+        reductions = []
+        table_datas = []
+        
+        for restriction, value in where_clause:
+            print("Where Clause logic for value " + str(value))
+            table, field = restriction.split(".")
+            row_filter = "S.{}.{}.{}".format(table, field, value)
+            table_data = list(map(lambda x: {"id": x["value"]}, filter(lambda x: x["key"].startswith(row_filter), items)))
+            reductions.append([data, table_data])
+            table_datas.append([(data, "id"), (table_data, "id")])
+        
+        records = []
+        for index, pair in enumerate(reductions):
+            records = list(self.hash_join(records, index, pair, table_datas))
+            print(records)
+        
+        yield [records]
+        
         
 statement = "select keyword, count(*) from items group by keyword"
 parser = Parser()
@@ -317,7 +402,7 @@ SQLExecutor(parser).execute()
 
 print("Inserting ted")
 parser = Parser()
-parser.parse("insert into people (people_name) values ('Ted')")
+parser.parse("insert into people (people_name, age) values ('Ted', 29)")
 SQLExecutor(parser).execute()
 
 print("Inserted ted")
@@ -327,7 +412,15 @@ parser.parse("insert into products (name, price) values ('Cat', 100)")
 SQLExecutor(parser).execute()
 
 parser = Parser()
-parser.parse("insert into items (search, people) values ('Cat', 2)")
+parser.parse("insert into products (name, price) values ('Tree', 50)")
+SQLExecutor(parser).execute()
+
+parser = Parser()
+parser.parse("insert into items (search) values ('Tree')")
+SQLExecutor(parser).execute()
+
+parser = Parser()
+parser.parse("insert into items (search, people) values ('Cat', 3)")
 SQLExecutor(parser).execute()
 
 pprint(items)
@@ -336,4 +429,18 @@ statement = "select products.price, people.people_name, items.search from items 
 parser = Parser()
 parser.parse(statement)
 SQLExecutor(parser).execute()
+
+statement = "select * from people where people.people_name = 'Ted' and people.age = 29"
+parser = Parser()
+parser.parse(statement)
+print(parser.select_clause)
+SQLExecutor(parser).execute()
+
+statement = "select * from items where items.search = 'Tree'"
+parser = Parser()
+parser.parse(statement)
+print(parser.select_clause)
+SQLExecutor(parser).execute()
+
+
 
