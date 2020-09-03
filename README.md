@@ -5,9 +5,7 @@ An SQL database in a couple of lines of code. In theory backed by a key value st
 Supports the following queries:
 
 * ```insert into people (people_name, age) values ('Ted', 29)```
-* ```select products.price, people.people_name,
-    items.search from items inner join people on people.id = items.people inner join products on items.search = products.name
-    where people.people_name = 'Ted' ```
+* ```select products.price, people.people_name, items.search from items inner join people on people.id = items.people inner join products on items.search = products.name where people.people_name = 'Ted'```
 * ```select * from people where people.people_name = 'Ted' and people.age = 29```
 * ```select search, count(*) from items group by items.search```
 
