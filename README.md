@@ -19,5 +19,5 @@ Currently fields are indexed in three ways:
 * by row
 * by search value
 
-This allows the database to fulfil where queries using as hash join.
+This allows the database to fulfil where queries using a hash join.
 
