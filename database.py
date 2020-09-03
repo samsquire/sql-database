@@ -45,34 +45,34 @@ class Parser():
         self.where_clause = []
 
     def getchar(self):
-        
+
         char = self.statement[self.pos]
         if self.pos + 1 == len(self.statement):
             self.end = True
             return char
         self.pos = self.pos + 1
-        
+
         return char
-        
+
     def gettok(self):
         while (self.last_char == " "):
             self.last_char = self.getchar()
-        
+
         if self.end:
             return None
-        
+
         if self.last_char == "(":
             self.last_char = self.getchar()
             return "openbracket"
-        
+
         if self.last_char == ")":
             self.last_char = self.getchar()
             return "closebracket"
-        
+
         if self.last_char == "*":
             self.last_char = self.getchar()
             return "wildcard"
-        
+
         if self.last_char == "'":
             self.last_char = self.getchar()
             identifier = ""
@@ -83,31 +83,31 @@ class Parser():
                 self.last_char = self.getchar()
             if self.end and self.last_char != ")" and self.last_char != "'":
                 identifier += self.last_char
-            
+
             self.last_char = self.getchar()
-            
+
             return identifier
-        
+
         if re.match("[a-zA-Z0-9\.\_]+", self.last_char):
             identifier = ""
             while self.end == False and re.match("[a-zA-Z0-9\.\_]+", self.last_char):
-                
+
                 identifier = identifier + self.last_char
                 self.last_char = self.getchar()
-            
+
             if self.end and self.last_char != ")":
                 identifier += self.last_char
-            
+
             return identifier
-    
+
         if self.last_char == "=":
             self.last_char = self.getchar()
             return "eq"
-        
+
         if self.last_char == ",":
             self.last_char = self.getchar()
             return "comma"
-    
+
     def parse_select(self, token=None):
         if token == None:
             token = self.gettok()
@@ -118,7 +118,7 @@ class Parser():
             self.parse_rest()
         elif token != None:
             identifier = token
-            
+
             token = self.gettok()
             if token == "openbracket": # we're in a function
                 function_parameters = self.gettok()
@@ -131,31 +131,31 @@ class Parser():
                 self.parse_select(token)
                 return
             closebracket = self.gettok()
-            
+
             self.select_clause.append(identifier + "(" + function_parameters + ")")
             self.parse_select()
-    
+
     def parse_rest(self):
         operation = self.gettok()
         if operation == "group":
             by = self.gettok()
             group_by = self.gettok()
             self.group_by = group_by
-            
+
         if operation == "inner":
             join = self.gettok()
             self.join_table = self.gettok()
             on = self.gettok()
             join_target_1 = self.gettok()
-            
+
             self.gettok()
             join_target_2 = self.gettok()
             self.join_clause.append([join_target_1, join_target_2])
             self.parse_rest()
-            
+
         if operation == "where":
             self.parse_where()
-            
+
     def parse_where(self):
         field = self.gettok()
         equals = self.gettok()
@@ -166,8 +166,8 @@ class Parser():
         another = self.gettok()
         if another == "and":
             self.parse_where()
-        
-    
+
+
     def parse_insert_fields(self):
         field_name = self.gettok()
         self.insert_fields.append(field_name)
@@ -177,7 +177,7 @@ class Parser():
             self.parse_rest_insert()
         if token == "comma":
             self.parse_insert_fields()
-    
+
     def parse_values(self):
         value = self.gettok()
         if re.match("[0-9\.]+", value):
@@ -190,21 +190,21 @@ class Parser():
             self.parse_values()
         if token == "closebracket":
             print("We have finished parsing insert into")
-            
-        
+
+
     def parse_rest_insert(self):
         values = self.gettok()
         if values == "values":
             openbracket = self.gettok()
             self.parse_values()
-    
+
     def parse_insert(self):
         self.insert_table = self.gettok()
         openbracket = self.gettok()
         print(openbracket)
         if openbracket == "openbracket":
             self.parse_insert_fields()
-    
+
     def parse(self, statement):
         self.statement = statement
         token = self.gettok()
@@ -219,7 +219,7 @@ class Parser():
 class SQLExecutor:
     def __init__(self, parser):
         self.parser = parser
-    
+
     def get_tables(self, table_def):
         table_datas = []
         for pair in table_def:
@@ -265,25 +265,25 @@ class SQLExecutor:
                 pair_items.append(field_reduction)
             field_reductions.append(pair_items)
         return table_datas, field_reductions
-    
+
     def hash_join(self, records, index, pair, table_datas):
         ids_for_key = defaultdict(list)
         if len(records) > 0:
             scan = records
         else:
             scan = pair[0]
-        
+
         for item in scan:
             field = table_datas[index][0][1]
-            
+
             left_field = item[field]
             ids_for_key[left_field] = item
-        
+
         for item in pair[1]:
             if table_datas[index][1][1] in item and item[table_datas[index][1][1]] in ids_for_key:
-                
+
                 yield {**ids_for_key[item[table_datas[index][1][1]]], **item}
-    
+
     def execute(self):
         if self.parser.insert_values:
             insert_table = self.parser.insert_table
@@ -313,7 +313,7 @@ class SQLExecutor:
                     })
                     created = True
                 items.sort(key=itemgetter('key'))
-            
+
         elif self.parser.group_by:
             print("Group by statement")
             aggregator = defaultdict(list)
@@ -348,7 +348,7 @@ class SQLExecutor:
                     table, field = clause.split(".")
                     output_line.append(record[field])
                 print(output_line)
-                
+
         elif self.parser.select_clause:
             table_datas, field_reductions = self.get_tables([["{}.".format(self.parser.table_name)]])
             have_printed_header = False
@@ -358,7 +358,7 @@ class SQLExecutor:
                 for result in pair[0]:
                     print("item: " + str(result))
                     for field in self.parser.select_clause:
-                        
+
                         if field == "*":
                             for key, value in result.items():
                                 if not have_printed_header:
@@ -369,7 +369,7 @@ class SQLExecutor:
                     have_printed_header = True
                 print(header)
                 print(output_line)
-    
+
     def process_wheres(self, field_reductions):
         where_clause = self.parser.where_clause
         print(where_clause)
@@ -377,7 +377,7 @@ class SQLExecutor:
         print(data)
         reductions = []
         table_datas = []
-        
+
         for restriction, value in where_clause:
             print("Where Clause logic for value " + str(value))
             table, field = restriction.split(".")
@@ -385,15 +385,15 @@ class SQLExecutor:
             table_data = list(map(lambda x: {"id": x["value"]}, filter(lambda x: x["key"].startswith(row_filter), items)))
             reductions.append([data, table_data])
             table_datas.append([(data, "id"), (table_data, "id")])
-        
+
         records = []
         for index, pair in enumerate(reductions):
             records = list(self.hash_join(records, index, pair, table_datas))
             print(records)
-        
+
         yield [records]
-        
-        
+
+
 statement = "select keyword, count(*) from items group by keyword"
 parser = Parser()
 parser.parse(statement)
@@ -441,6 +441,7 @@ parser = Parser()
 parser.parse(statement)
 print(parser.select_clause)
 SQLExecutor(parser).execute()
+
 
 
 
