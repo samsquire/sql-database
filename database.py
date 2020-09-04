@@ -172,7 +172,7 @@ class Parser():
     def parse_insert_fields(self):
         field_name = self.gettok()
         self.insert_fields.append(field_name)
-        print("Adding:" + field_name)
+    
         token = self.gettok()
         if token == "closebracket":
             self.parse_rest_insert()
@@ -214,7 +214,7 @@ class Parser():
         if token == "insert":
             into = self.gettok()
             self.parse_insert()
-        print(token)
+       
 
 
 class SQLExecutor:
@@ -267,9 +267,9 @@ class SQLExecutor:
             field_reductions.append(pair_items)
         return table_datas, field_reductions
     
-    def hash_join(self, records, index, pair, table_datas):
+    def hash_join(self, records, index, pair, table_datas, process_records=True):
         ids_for_key = defaultdict(list)
-        if len(records) > 0:
+        if process_records and len(records) > 0:
             scan = records
         else:
             scan = pair[0]
@@ -281,8 +281,10 @@ class SQLExecutor:
             ids_for_key[left_field] = item
         
         for item in pair[1]:
+            
             if table_datas[index][1][1] in item and item[table_datas[index][1][1]] in ids_for_key:
-                
+                item_value = item[table_datas[index][1][1]]
+                print("Found match: {} in ids_for_key".format(item_value))
                 yield {**ids_for_key[item[table_datas[index][1][1]]], **item}
     
     def execute(self):
@@ -295,7 +297,7 @@ class SQLExecutor:
                 table_datas, field_reductions = self.get_tables([["{}.".format(insert_table)]])
                 if not created:
                     new_insert_count = len(list(field_reductions[0][0])) + 1
-                print(new_insert_count)
+                
                 new_key = "R.{}.{}.{}".format(insert_table, new_insert_count, field)
                 items.append({
                     "key": new_key,
@@ -388,16 +390,16 @@ class SQLExecutor:
         table_datas = []
         
         for restriction, value in where_clause:
-            print("Where Clause logic for value " + str(value))
+            print("Running hash join for where clause value " + str(value))
             table, field = restriction.split(".")
             row_filter = "S.{}.{}.{}".format(table, field, value)
             table_data = list(map(lambda x: {"id": x["value"]}, filter(lambda x: x["key"].startswith(row_filter), items)))
-            reductions.append([data, table_data])
-            table_datas.append([(data, "id"), (table_data, "id")])
+            reductions.append([table_data, data])
+            table_datas.append([(table_data, "id"), (data, "id")])
         
         records = []
         for index, pair in enumerate(reductions):
-            records = list(self.hash_join(records, index, pair, table_datas))
+            records = list(self.hash_join(records, index, pair, table_datas, process_records=False))
             print(records)
         
         return records
