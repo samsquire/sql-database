@@ -43,6 +43,7 @@ class Parser():
         self.insert_fields = []
         self.insert_values = []
         self.where_clause = []
+        self.fts_clause = []
         
 
     def getchar(self):
@@ -56,12 +57,11 @@ class Parser():
         return char
         
     def gettok(self):
-        while (self.last_char == " " or self.last_char == "\n"):
+        while (self.end == False and (self.last_char == " " or self.last_char == "\n")):
             self.last_char = self.getchar()
         
-        if self.end:
-            return None
         
+              
         if self.last_char == "(":
             self.last_char = self.getchar()
             return "openbracket"
@@ -105,9 +105,17 @@ class Parser():
             self.last_char = self.getchar()
             return "eq"
         
+        if self.last_char == "~":
+            self.last_char = self.getchar()
+            return "tilde"
+        
         if self.last_char == ",":
             self.last_char = self.getchar()
             return "comma"
+        
+        if self.end:
+            return None
+        
     
     def parse_select(self, token=None):
         if token == None:
@@ -138,6 +146,9 @@ class Parser():
     
     def parse_rest(self):
         operation = self.gettok()
+        print(operation)
+        if operation == None:
+            return
         if operation == "group":
             by = self.gettok()
             group_by = self.gettok()
@@ -161,9 +172,15 @@ class Parser():
         field = self.gettok()
         equals = self.gettok()
         value = self.gettok()
+        print(equals)
+        print(value)
         if re.match("[0-9\.]+", value):
             value = int(value)
-        self.where_clause.append((field, value))
+        print("Equals operator:" + equals)
+        if equals == "eq":
+            self.where_clause.append((field, value))
+        if equals == "tilde":
+            self.fts_clause.append((field, value))
         another = self.gettok()
         if another == "and":
             self.parse_where()
@@ -288,7 +305,32 @@ class SQLExecutor:
                 yield {**ids_for_key[item[table_datas[index][1][1]]], **item}
     
     def execute(self):
-        if self.parser.insert_values:
+        if self.parser.fts_clause:
+            # full text search
+            table_datas, field_reductions = self.get_tables([["{}.".format(self.parser.table_name)]])
+            have_printed_header = False
+            header = []
+            output_lines = []
+            outputs = []
+            for result in self.process_wheres(field_reductions[0][0]):
+                print("item: " + str(result))
+                output_lines = []
+                for field in self.parser.select_clause:
+
+                    if field == "*":
+                        for key, value in result.items():
+                            if not have_printed_header:
+                                header.append(key)
+                            output_lines.append(value)
+                    else:
+                        output_lines.append(result[field])
+                have_printed_header = True
+                outputs.append(output_lines)
+            print(header)
+            print(outputs)
+             
+            
+        elif self.parser.insert_values:
             insert_table = self.parser.insert_table
             print("Insert statement")
             created = False
@@ -297,6 +339,17 @@ class SQLExecutor:
                 table_datas, field_reductions = self.get_tables([["{}.".format(insert_table)]])
                 if not created:
                     new_insert_count = len(list(field_reductions[0][0])) + 1
+                
+                # create full text search index
+                if isinstance(value, str): 
+                    tokens = value.replace(",", "").split(" ")
+                    for token in tokens:
+                        new_key = "FTS.{}.{}.{}.{}".format(insert_table, field, token, new_insert_count)
+                        items.append({
+                            "key": new_key,
+                            "value": new_insert_count
+                        })
+                
                 
                 new_key = "R.{}.{}.{}".format(insert_table, new_insert_count, field)
                 items.append({
@@ -346,6 +399,7 @@ class SQLExecutor:
                     else:
                         output_line += str(k) + " "
                 print(output_line)
+                
         elif self.parser.join_clause:
             table_datas, field_reductions = self.get_tables(self.parser.join_clause)
 
@@ -385,22 +439,56 @@ class SQLExecutor:
     
     def process_wheres(self, field_reductions):
         where_clause = self.parser.where_clause
+        fts_clause = self.parser.fts_clause
         data = list(field_reductions)
+        records = []
+        if not where_clause and not fts_clause:
+            return field_reductions
         reductions = []
         table_datas = []
+        and_or = []        
+        
+        for restriction, value in fts_clause:
+            print("Running FTS search for where clause value " + str(value))
+            table, field = restriction.split(".")
+            tokens = value.split(" ")
+            mode = "and"
+            for token in tokens:
+                if token == "&" or token == "|":
+                    if token == "&":
+                        mode = "and"
+                    if token == "|":
+                        mode = "or"
+                    continue
+                and_or.append(mode)
+                row_filter = "FTS.{}.{}.{}".format(table, field, token)
+                table_data = list(map(lambda x: {"id": x["value"]}, filter(lambda x: x["key"].startswith(row_filter), items)))
+                
+                reductions.append([data, table_data])
+                table_datas.append([(data, "id"), (table_data, "id")])
         
         for restriction, value in where_clause:
             print("Running hash join for where clause value " + str(value))
             table, field = restriction.split(".")
+            and_or.append("and")
             row_filter = "S.{}.{}.{}".format(table, field, value)
             table_data = list(map(lambda x: {"id": x["value"]}, filter(lambda x: x["key"].startswith(row_filter), items)))
             reductions.append([table_data, data])
             table_datas.append([(table_data, "id"), (data, "id")])
         
-        records = []
+        process_records = True
+        
         for index, pair in enumerate(reductions):
-            records = list(self.hash_join(records, index, pair, table_datas, process_records=False))
+            if and_or[index] == "and":
+                records = list(self.hash_join(records, index, pair, table_datas, process_records=True))
+                
+            if and_or[index] == "or":
+                matched = list(self.hash_join(records, index, pair, table_datas, process_records=False))
+                if matched:
+                    records = records + matched
             print(records)
+        
+        
         
         return records
         
@@ -430,13 +518,18 @@ SQLExecutor(parser).execute()
 pprint(items)
 
 statement = """select products.price, people.people_name,
-    items.search from items inner join people on people.id = items.people inner join products on items.search = products.name
-    where people.people_name = 'Ted'"""
+    items.search from items inner join people on people.id = items.people
+    inner join products on items.search = products.name
+    
+    """
+# where people.people_name = 'Ted'
 print(statement)
 parser = Parser()
 parser.parse(statement)
-SQLExecutor(parser).execute()
+print("parsed")
 
+SQLExecutor(parser).execute()
+print("executed")
 statement = "select * from people where people.people_name = 'Ted' and people.age = 29"
 parser = Parser()
 parser.parse(statement)
@@ -450,6 +543,22 @@ print(parser.select_clause)
 SQLExecutor(parser).execute()
 
 statement = "select search, count(*) from items group by items.search"
+parser = Parser()
+parser.parse(statement)
+
+SQLExecutor(parser).execute()
+
+parser = Parser()
+parser.parse("insert into items (search, people) values ('A long sentence', 3)")
+SQLExecutor(parser).execute()
+
+parser = Parser()
+parser.parse("insert into items (search, people) values ('blah sentence', 3)")
+SQLExecutor(parser).execute()
+
+pprint(items)
+
+statement = "select * from items where items.search ~ 'blah' where items.people = 3"
 parser = Parser()
 parser.parse(statement)
 
