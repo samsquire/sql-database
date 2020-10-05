@@ -14,12 +14,13 @@ Supports the following queries:
 
 The SQL parser is really simple and doesn't produce an AST. It would be nice if in the future future the query was parsed to an AST query plan which could then be optimized.
 
-Currently fields are indexed in four ways:
+Currently fields inserted are indexed in four ways:
 
 * by column
 * by row
 * by search value
 * by full text search index
 
-This allows the database to fulfil where queries using a hash join.
+This allows the database to fulfil where queries and full text queries using a hash join. [This is inspired by Rockset converged indexing](https://rockset.com/blog/converged-indexing-the-secret-sauce-behind-rocksets-fast-queries/).
+
 
