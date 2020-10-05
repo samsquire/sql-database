@@ -8,7 +8,7 @@ Supports the following queries:
 * ```select products.price, people.people_name, items.search from items inner join people on people.id = items.people inner join products on items.search = products.name where people.people_name = 'Ted'```
 * ```select * from people where people.people_name = 'Ted' and people.age = 29```
 * ```select search, count(*) from items group by items.search```
-* **Full text search** ```select * from items where items.search ~ 'blah'```
+* **Full text search** ```select * from items where items.search ~ 'blah & sentence'``` (and, or supported)
 
 # About
 
