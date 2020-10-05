@@ -13,7 +13,7 @@ Supports the following queries:
 
 The SQL parser is really simple and doesn't produce an AST. It would be nice if in the future future the query was parsed to an AST query plan which could then be optimized.
 
-Currently fields are indexed in three ways:
+Currently fields are indexed in four ways:
 
 * by column
 * by row
