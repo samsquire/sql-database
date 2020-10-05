@@ -18,6 +18,7 @@ Currently fields are indexed in three ways:
 * by column
 * by row
 * by search value
+* by full text search index
 
 This allows the database to fulfil where queries using a hash join.
 
